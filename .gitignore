@@ -1,0 +1,10 @@
+# Ignore everything
+*
+
+!.gitignore
+!CPS_variables.xlsx
+!cps.R
+
+!*/
+.Rproj.user
+
