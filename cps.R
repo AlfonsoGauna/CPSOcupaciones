@@ -78,6 +78,7 @@ abilities <- colnames(ABL)
 # Armamos un data frame con todo (Knowledge, Skills & Abilities)
 KSA <- KNG[SKL, on=.(SOC_code = SOC_code)]
 KSA <- KSA[ABL, on=.(SOC_code = SOC_code)]
+fwrite(KSA, "ksa.csv")
 
 # Calculamos la distancia entre las ocupaciones
 ### LO HICE EN PYTHON, importo el resultado ###

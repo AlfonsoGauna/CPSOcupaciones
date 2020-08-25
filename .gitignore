@@ -7,7 +7,8 @@
 !crosswalk.csv
 !Knowledge.csv
 !Skills.csv
-!Abilities,csv
+!Abilities.csv
+!ksa.csv
 !ksa.py
 !ksa_sim.csv
 
