@@ -81,5 +81,10 @@ KSA <- KSA[ABL, on=.(SOC_code = SOC_code)]
 fwrite(KSA, "ksa.csv")
 
 # Calculamos la distancia entre las ocupaciones
-### LO HICE EN PYTHON, importo el resultado ###
-ksa_sim <- fread('ksa_sim.csv')
+### LO HICE EN PYTHON, importo el resultado [ksa.py] ###
+### Consegui hacerlo en R [ksa.R] ###
+
+ksa_sim <-fread('ksa_sim.csv')
+ksa_sim_R <- fread('simKSA.csv')
+ksa_sim_R <- ksa_sim_R[, c(2, 3, 4)]
+

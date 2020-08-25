@@ -32,4 +32,4 @@ for occ_1 in ksa.index:
 ksa_sim['id'] = ksa. index
 ksa_long = pd.melt(ksa_sim, id_vars=['id'], value_vars=ksa.index)
 ksa_long.columns = ['occ_1', 'occ_2', 'simi']
-ksa_long.to_csv("ksa_sim.csv")
+ksa_long.to_csv("ksa_sim.csv", index=False)
