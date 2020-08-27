@@ -1,7 +1,7 @@
 library(data.table)
 
 # Cargamos la raw data
-panel <- fread('cps_data.csv/cps_data.csv')
+panel <- fread('cps_data.csv')
 
 # Releyendo lo de Nedelkoska et al, creo que no tiene sentido lo de industrias
 # acá voy a marcar con change_occ cuando hubo un cambio en ocupación y
@@ -46,49 +46,54 @@ panel_changes <- panel_changes[!OCC2010 %in% not_in_cross & !old_occ %in% not_in
 # Este dt te puede servir para ver cuáles son los census occ 2010 que tienen
 # más de un matcheo con SOC
 census_soc_n <- crosswalk[,.N,by=`2010 Census Code`]
-census_soc_n[order(N,decreasing = TRUE)]
+# census_soc_n[order(N,decreasing = TRUE)]
+
+
+# Funcion que lleva las categorias de KSA desde ONET SOC 2010 a CENSUS 2010, a traves de SOC 2010
+onet_soc_census_translation <- function(dataframe, corte_dummy){
+  # O*NET SOC --> SOC
+  dataframe <- dataframe[, SOC_code := substr(`O*NET-SOC Code`, start = 1, stop = 7)] # nos quedamos con 'xx-xxxx'
+  dataframe <- dataframe[, prom := mean(`Data Value`), by=c("SOC_code", "Element Name")] # calculamos el promedio del level en nivel SOC
+  dataframe <- dataframe[, .(SOC_code, `Element Name`, prom)] # nos quedamos con las variables que nos interesan
+  dataframe <- unique(dataframe) # eliminamos las filas repetidas
+  # SOC --> 2010 CENSUS
+  dataframe <- dataframe[crosswalk, on=.(SOC_code = `2010 SOC Code`)] # Hacemos el JOIN con el crosswalk
+  dataframe <- dataframe[!is.na(`Element Name`)] # Eliminamos codigos que tiene NAn en el nombre del elemnto, porque no sirven
+  dataframe <- dataframe[, level_prom := mean(prom), by=c("Element Name", "2010 Census Code")] # calculamos el promedio en nivel de censo 2010
+  dataframe <- dataframe[, .(`2010 Census Code`, `Element Name`, level_prom)] # nos quedamos con las variables que nos interesan
+  dataframe <- unique(dataframe) # eliminamos las filas repetidas
+  dataframe <- dataframe[, level_prom :=ifelse(level_prom<corte_dummy,0,1)] # hacemos la dummy en funcion del valor de corte
+  dataframe <- dcast(dataframe, `2010 Census Code` ~ `Element Name`, value.var="level_prom") # Reshape to wide format
+}
 
 # Cargamos la data de KSA (codigos en O*NET SOC)
 corte = 2.5 # Nedelkoska et al (2018) usan 2.5 como corte pero capaz es interesante ver que pasa en cuando se cambia a 3
 
+# Knowledge
 KNG <- fread("Knowledge.csv")
-SKL <- fread("Skills.csv")
-ABL <- fread("Abilities.csv")
-
-# Agregamos de O*NET SOC a SOC, a través de un promedio simple
-# Trabajamos con knowledge
-KNG <- KNG[, SOC_code := substr(`O*NET-SOC Code`, start = 1, stop = 7)] # nos quedamos con 'xx-xxxx'
-KNG <- KNG[, prom := mean(`Data Value`), by=c("SOC_code", "Element Name")] # calculamos el promedio del level
-KNG <- KNG[, .(SOC_code, `Element Name`, prom)] # nos quedamos con las variables que nos interesan
-KNG <- unique(KNG) # eliminamos las filas repetidas
-KNG <- KNG[, prom :=ifelse(prom<corte,0,1)] # hacemos la dummy en funcion del valor de corte
-KNG <- dcast(KNG, SOC_code ~ `Element Name`, value.var="prom") # Reshape to wide format
+KNG <- onet_soc_census_translation(KNG, corte)
 knowledge <- colnames(KNG)
-# Hacemos lo mismo con skills
-SKL <- SKL[, SOC_code := substr(`O*NET-SOC Code`, start = 1, stop = 7)]
-SKL <- SKL[, prom := mean(`Data Value`), by=c("SOC_code", "Element Name")] 
-SKL <- SKL[, .(SOC_code, `Element Name`, prom)] 
-SKL <- unique(SKL) 
-SKL <- SKL[, prom :=ifelse(prom<corte,0,1)] 
-SKL <- dcast(SKL, SOC_code ~ `Element Name`, value.var="prom") 
+
+# Skills
+SKL <- fread("Skills.csv")
+SKL <- onet_soc_census_translation(SKL, corte)
 skills <- colnames(SKL)
-# Hacemos lo mismo con abilities
-ABL <- ABL[, SOC_code := substr(`O*NET-SOC Code`, start = 1, stop = 7)]
-ABL <- ABL[, prom := mean(`Data Value`), by=c("SOC_code", "Element Name")] 
-ABL <- ABL[, .(SOC_code, `Element Name`, prom)] 
-ABL <- unique(ABL) 
-ABL <- ABL[, prom :=ifelse(prom<corte,0,1)] 
-ABL <- dcast(ABL, SOC_code ~ `Element Name`, value.var="prom") 
+
+# Abilities
+ABL <- fread("Abilities.csv")
+ABL <- onet_soc_census_translation(ABL, corte)
 abilities <- colnames(ABL)
 
 # Armamos un data frame con todo (Knowledge, Skills & Abilities)
-KSA <- KNG[SKL, on=.(SOC_code = SOC_code)]
-KSA <- KSA[ABL, on=.(SOC_code = SOC_code)]
+KSA <- KNG[SKL, on=.(`2010 Census Code` = `2010 Census Code`)]
+KSA <- KSA[ABL, on=.(`2010 Census Code` = `2010 Census Code`)]
 fwrite(KSA, "ksa.csv")
 
 # Dejo acá el código para generar una matriz con la distancia de jaccard.
 # Uso que max(Jaccard distance) = 1 ~ Jaccard Similarity
-dta <- read.csv(file = 'ksa.csv', row.names = 'SOC_code')
+library(philentropy)
+dta <- read.csv(file = 'ksa.csv')
+row.names(dta) <- dta$X2010.Census.Code
 x <- 1 - distance(dta, method = "jaccard")
 colnames(x) <- rownames(dta)
 x <- data.table(x)
@@ -97,11 +102,7 @@ simMat <- melt(x,id.vars = c("sector_fila"), variable.name = "sector_columna")
 
 
 # Hacemos el JOIN y cambiamos los nombres de las varaibles
-
-crosswalk[,list(n_census=.N),list(`2010 Census Code`)]
-
-panel_changes <- panel_changes[crosswalk,
-                               on = c("OCC2010" = "2010 Census Code")]
-names(panel_changes)[names(panel_changes) == "2010 SOC Code"] <- "OCC_ONET"
-panel_changes <- panel_changes[crosswalk, on=.(old_occ = `2010 Census Code`)]
-names(panel_changes)[names(panel_changes) == "2010 SOC Code"] <- "OCC_old_ONET"
+simMat$sector_fila <- as.integer(simMat$sector_fila)
+simMat$sector_columna <- as.integer(simMat$sector_columna)
+panel_changes <- panel_changes[simMat, on=.(OCC2010 = sector_fila,
+                                            old_occ = sector_columna)]
