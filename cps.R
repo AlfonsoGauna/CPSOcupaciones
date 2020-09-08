@@ -48,14 +48,19 @@ panel_changes <- panel_changes[!OCC2010 %in% not_in_cross & !old_occ %in% not_in
 census_soc_n <- crosswalk[,.N,by=`2010 Census Code`]
 # census_soc_n[order(N,decreasing = TRUE)]
 
+# Levantamos el clasificador o*net_soc to soc
+onetsoc_to_soc <- readxl::read_excel("classifiers_mess/soc-onet.xlsx") %>% 
+  as.data.table() %>%
+  setnames(old = c("O*NET-SOC 2010 Code","SOC Code"),
+           new = c("onet_soc","soc"))
 
 # Funcion que lleva las categorias de KSA desde ONET SOC 2010 a CENSUS 2010, a traves de SOC 2010
 onet_soc_census_translation <- function(dataframe, corte_dummy){
   # O*NET SOC --> SOC
-  dataframe <- dataframe[, SOC_code := substr(`O*NET-SOC Code`, start = 1, stop = 7)] # nos quedamos con 'xx-xxxx'
-  dataframe <- dataframe[, prom := mean(`Data Value`), by=c("SOC_code", "Element Name")] # calculamos el promedio del level en nivel SOC
-  dataframe <- dataframe[, .(SOC_code, `Element Name`, prom)] # nos quedamos con las variables que nos interesan
-  dataframe <- unique(dataframe) # eliminamos las filas repetidas
+  dataframe <- dataframe[onetsoc_to_soc,
+                         on=c("O*NET-SOC Code"="onet_soc"),
+                         SOC_code := soc]
+  dataframe <- dataframe[, list(prom = mean(`Data Value`)), by=c("SOC_code", "Element Name")] # calculamos el promedio del level en nivel SOC
   # SOC --> 2010 CENSUS
   dataframe <- dataframe[crosswalk, on=.(SOC_code = `2010 SOC Code`)] # Hacemos el JOIN con el crosswalk
   dataframe <- dataframe[!is.na(`Element Name`)] # Eliminamos codigos que tiene NAn en el nombre del elemnto, porque no sirven
@@ -102,7 +107,8 @@ simMat <- melt(x,id.vars = c("sector_fila"), variable.name = "sector_columna")
 
 
 # Hacemos el JOIN y cambiamos los nombres de las varaibles
-simMat$sector_fila <- as.integer(simMat$sector_fila)
-simMat$sector_columna <- as.integer(simMat$sector_columna)
+simMat$sector_fila <- as.integer(as.character(simMat$sector_fila))
+simMat$sector_columna <- as.integer(as.character(simMat$sector_columna))
 panel_changes <- panel_changes[simMat, on=.(OCC2010 = sector_fila,
-                                            old_occ = sector_columna)]
+                                            old_occ = sector_columna),
+                               value:=i.value]
