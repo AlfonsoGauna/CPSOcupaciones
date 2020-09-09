@@ -29,46 +29,29 @@ panel <- panel[, ':=' (old_ind = shift(IND1990),
 # Nos quedamos con las observaciones donde se cambio de ocupación
 panel_changes <- panel[change_occ==1]
 
-# Cargamos el crosswalk 2010Census - 2010ONET
-crosswalk <- fread("crosswalk.csv")
+# Cargamos los crosswalks individuales
+onet_soc <- fread("onet-soc.csv")
+soc_census <- fread("census-soc.csv")
+census_occ <- fread("occ-census.csv")
 
-# Vemos que codigos de ocupacion no esta en el crosswalk
-not_in_cross <- setdiff(panel_changes$OCC2010, crosswalk$`2010 Census Code`)
+# Creamos un crosswalk unico
+crosswalk <- onet_soc[soc_census, on = .(`2010 SOC Code` = `Soc 2010`)]
+crosswalk <- crosswalk[census_occ, on = .(`Census 2010` = `2010 census`)]
 
-# Sacamos las observaciones que tienen codigo de ocupacion que no esta en el crosswalk
-panel_changes <- panel_changes[!OCC2010 %in% not_in_cross & !old_occ %in% not_in_cross]
+crosswalk <- crosswalk[!is.na(`O*NET-SOC 2010 Code`)]
+crosswalk <- crosswalk[, .(`O*NET-SOC 2010 Code`, Occ2010)]
+colnames(crosswalk) <- c('Onet_codes','Occ2010_codes')
 
-# Antes de hacer el join entre los códigos de ocupación del census con
-# el SOC, vamos a resumir KSAs a nivel de SOC (y quizás haya que hacer
-# otra agregación para que cada census occ 2010 se corresponda con solo
-# un soc 2010)
-
-# Este dt te puede servir para ver cuáles son los census occ 2010 que tienen
-# más de un matcheo con SOC
-census_soc_n <- crosswalk[,.N,by=`2010 Census Code`]
-# census_soc_n[order(N,decreasing = TRUE)]
-
-# Levantamos el clasificador o*net_soc to soc
-onetsoc_to_soc <- readxl::read_excel("classifiers_mess/soc-onet.xlsx") %>% 
-  as.data.table() %>%
-  setnames(old = c("O*NET-SOC 2010 Code","SOC Code"),
-           new = c("onet_soc","soc"))
-
-# Funcion que lleva las categorias de KSA desde ONET SOC 2010 a CENSUS 2010, a traves de SOC 2010
+# Funcion que lleva las categorias de KSA desde ONET SOC 2010 a Occ2010 (~CENSUS 2010)
 onet_soc_census_translation <- function(dataframe, corte_dummy){
-  # O*NET SOC --> SOC
-  dataframe <- dataframe[onetsoc_to_soc,
-                         on=c("O*NET-SOC Code"="onet_soc"),
-                         SOC_code := soc]
-  dataframe <- dataframe[, list(prom = mean(`Data Value`)), by=c("SOC_code", "Element Name")] # calculamos el promedio del level en nivel SOC
-  # SOC --> 2010 CENSUS
-  dataframe <- dataframe[crosswalk, on=.(SOC_code = `2010 SOC Code`)] # Hacemos el JOIN con el crosswalk
+  # O*NET SOC --> Occ2010
+  dataframe <- dataframe[crosswalk, on=c("O*NET-SOC Code"="Onet_codes")] # Hacemos el JOIN con el crosswalk
+  dataframe <- dataframe[, list(prom = mean(`Data Value`)), by=c("Occ2010_codes", "Element Name")] # calculamos el promedio del level en nivel SOC
   dataframe <- dataframe[!is.na(`Element Name`)] # Eliminamos codigos que tiene NAn en el nombre del elemnto, porque no sirven
-  dataframe <- dataframe[, level_prom := mean(prom), by=c("Element Name", "2010 Census Code")] # calculamos el promedio en nivel de censo 2010
-  dataframe <- dataframe[, .(`2010 Census Code`, `Element Name`, level_prom)] # nos quedamos con las variables que nos interesan
+  dataframe <- dataframe[, .(Occ2010_codes, `Element Name`, prom)] # nos quedamos con las variables que nos interesan
   dataframe <- unique(dataframe) # eliminamos las filas repetidas
-  dataframe <- dataframe[, level_prom :=ifelse(level_prom<corte_dummy,0,1)] # hacemos la dummy en funcion del valor de corte
-  dataframe <- dcast(dataframe, `2010 Census Code` ~ `Element Name`, value.var="level_prom") # Reshape to wide format
+  dataframe <- dataframe[, prom :=ifelse(prom<corte_dummy,0,1)] # hacemos la dummy en funcion del valor de corte
+  dataframe <- dcast(dataframe, Occ2010_codes ~ `Element Name`, value.var="prom") # Reshape to wide format
 }
 
 # Cargamos la data de KSA (codigos en O*NET SOC)
@@ -90,25 +73,44 @@ ABL <- onet_soc_census_translation(ABL, corte)
 abilities <- colnames(ABL)
 
 # Armamos un data frame con todo (Knowledge, Skills & Abilities)
-KSA <- KNG[SKL, on=.(`2010 Census Code` = `2010 Census Code`)]
-KSA <- KSA[ABL, on=.(`2010 Census Code` = `2010 Census Code`)]
-fwrite(KSA, "ksa.csv")
+KSA <- KNG[SKL, on=.(Occ2010_codes = Occ2010_codes)]
+KSA <- KSA[ABL, on=.(Occ2010_codes = Occ2010_codes)]
 
 # Dejo acá el código para generar una matriz con la distancia de jaccard.
 # Uso que max(Jaccard distance) = 1 ~ Jaccard Similarity
 library(philentropy)
-dta <- read.csv(file = 'ksa.csv')
-row.names(dta) <- dta$X2010.Census.Code
-x <- 1 - distance(dta, method = "jaccard")
-colnames(x) <- rownames(dta)
+row.names(KSA) <- KSA$Occ2010_codes
+x <- 1 - distance(KSA, method = "jaccard")
+colnames(x) <- rownames(KSA)
 x <- data.table(x)
-x[,sector_fila:=rownames(dta)]
+x[,sector_fila:=rownames(KSA)]
 simMat <- melt(x,id.vars = c("sector_fila"), variable.name = "sector_columna")
 
 
 # Hacemos el JOIN y cambiamos los nombres de las varaibles
 simMat$sector_fila <- as.integer(as.character(simMat$sector_fila))
 simMat$sector_columna <- as.integer(as.character(simMat$sector_columna))
-panel_changes <- panel_changes[simMat, on=.(OCC2010 = sector_fila,
-                                            old_occ = sector_columna),
-                               value:=i.value]
+panel_changes <- panel_changes[simMat, 
+                               on = .(OCC2010 = sector_fila, 
+                                      old_occ = sector_columna),
+                               value := i.value]
+
+# Bajan drásticamente las observaciones cuando filtramos por !is.na(value), el 47% tiene Na en 'value' 
+# pero esto se explica por dos cosas, uno porque había observaciones con 9920 en OCC2010 o old_occ y 
+# el 9920 esta reservado para desocupados, por ahí podemos filtrar antes por esto. Y segundo hay 18 
+# códigos que están en panel_changes pero no en simMat estos están en no_sim. Si hace falta los reviso 
+# uno por uno mañana
+
+# # codigo sobre comentario anterior:
+# ocupaciones_originales <- sort(unique(panel_changes$OCC2010))
+# ocupaciones_similitud <- sort(unique(simMat$sector_fila))
+# 
+# pares <- panel_changes[is.na(value)]
+# pares <- pares[, .(OCC2010, old_occ)]
+# pares <- unique(pares)
+# # causa 1
+# pares <- pares[OCC2010 != 9920 & old_occ != 9920]
+# # causa 2
+# no_sim <- setdiff(ocupaciones_originales, ocupaciones_similitud)
+# pares <- pares[, codigo_faltante := ifelse(OCC2010 %in% no_sim | old_occ %in% no_sim, 1, 0)]
+# pares <- pares[codigo_faltante == 0]

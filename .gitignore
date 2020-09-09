@@ -4,15 +4,12 @@
 !.gitignore
 !CPS_variables.xlsx
 !cps.R
-!crosswalk.csv
 !Knowledge.csv
 !Skills.csv
 !Abilities.csv
-!ksa.csv
-!ksa.py
-!ksa_sim.csv
-!KSA.R
-!simKSA.csv
+!onet-soc.csv
+!census-soc.csv
+!occ-census.csv
 
 !*/
 .Rproj.user
