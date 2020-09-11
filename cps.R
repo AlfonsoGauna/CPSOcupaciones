@@ -1,4 +1,4 @@
-library(data.table)
+library(data.table, bit64)
 
 # Cargamos la raw data
 panel <- fread('cps_data.csv')
@@ -86,6 +86,9 @@ x <- data.table(x)
 x[,sector_fila:=rownames(KSA)]
 simMat <- melt(x,id.vars = c("sector_fila"), variable.name = "sector_columna")
 
+# Eliminamos objetos que ya no vamos a utilizar
+rm(list=c("onet_soc", "soc_census", "census_occ", "crosswalk", 
+          "KNG", "SKL", "ABL", "KSA", "corte", "simMat"))
 
 # Hacemos el JOIN y cambiamos los nombres de las varaibles
 simMat$sector_fila <- as.integer(as.character(simMat$sector_fila))
@@ -114,3 +117,54 @@ panel_changes <- panel_changes[simMat,
 # no_sim <- setdiff(ocupaciones_originales, ocupaciones_similitud)
 # pares <- pares[, codigo_faltante := ifelse(OCC2010 %in% no_sim | old_occ %in% no_sim, 1, 0)]
 # pares <- pares[codigo_faltante == 0]
+# rm(list = c("simMat", "ocupaciones_originales", "ocupaciones_similitud", "pares", "no_sim"))
+
+# Cargamos mas variables del cps para hacer el match con la complementary data
+cps_variables <- fread("cps_3.csv")
+cpsidp_interest <- unique(panel_changes$CPSIDP)
+cps_variables <- cps_variables[CPSIDP %in% cpsidp_interest]
+
+variables_match <- intersect(colnames(cps_variables), colnames(panel_changes))
+
+panel_changes <- panel_changes[cps_variables, on=c("YEAR"="YEAR",
+                                                   "SERIAL"="SERIAL",
+                                                   "MONTH"="MONTH",
+                                                   "HWTFINL"="HWTFINL",
+                                                   "CPSID"="CPSID",
+                                                   "ASECFLAG"="ASECFLAG",
+                                                   "PERNUM"="PERNUM",
+                                                   "WTFINL"="WTFINL",
+                                                   "CPSIDP"="CPSIDP")]
+panel_changes <- panel_changes[!is.na(YEAR) & 
+                               !is.na(SERIAL) &
+                               !is.na(MONTH) &
+                               !is.na(HWTFINL) & 
+                               !is.na(CPSID) &
+                               !is.na(ASECFLAG) &
+                               !is.na(PERNUM) & 
+                               !is.na(WTFINL) & 
+                               !is.na(CPSIDP)]
+
+rm(list=c("cps_variables", "variables_match", "cpsidp_interest"))
+
+# Cargamos la data complementaria
+files <- paste(1996:2018, ".csv", sep = '')
+data_tables <- lapply(files, 
+                      function(x) {
+                        fread(x)
+                      })
+
+complementary_data <- rbindlist(data_tables)
+
+rm(list=c("data_tables","files"))
+
+panel_changes <- panel_changes[complementary_data, on = c('HRHHID'='hhid',
+                                                          'HRHHID2'='hhid2',
+                                                          'YEAR'='year',
+                                                          'MONTH'='month')]
+
+panel_changes <- panel_changes[!is.na(HRHHID) &
+                               !is.na(HRHHID2) &
+                               !is.na(YEAR) & 
+                               !is.na(MONTH)]
+
